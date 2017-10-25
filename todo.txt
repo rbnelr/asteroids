@@ -1,0 +1,8 @@
+DONE:
+ 
+TODO
+-FEATURES:
+ compare integration methods on spring model
+ 
+-BUGS:
+ 

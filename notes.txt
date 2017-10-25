@@ -1,0 +1,4 @@
+
+// maybe do colored console output with this: https://stackoverflow.com/questions/2353430/how-can-i-print-to-the-console-in-color-in-a-cross-platform-manner
+//  does NOT work in cmd.exe but in linux mac and in conemu
+	printf("%c[1;34mHello, world!\n", 27);
