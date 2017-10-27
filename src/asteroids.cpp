@@ -87,8 +87,18 @@ struct Texture {
 	}
 };
 
+struct Rect {
+	iv2 pos;
+	iv2 dim;
+};
+
 //
+static GLFWmonitor*	primary_monitor;
 static GLFWwindow*	wnd;
+static bool			fullscreen;
+static Rect			_suggested_wnd_rect;
+static Rect			_restore_wnd_rect;
+
 static u32			frame_indx; // probably should only used for debug logic
 
 static f64			t;
@@ -118,9 +128,14 @@ static void setup_glfw () {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,	3);
 	//glfwWindowHint(GLFW_OPENGL_PROFILE,			GLFW_OPENGL_CORE_PROFILE);
 	
+	primary_monitor = glfwGetPrimaryMonitor();
+	
 	glfwWindowHint(GLFW_VISIBLE,				0);
-	wnd = glfwCreateWindow(1000, 1000, "GLFW test", NULL, NULL);
+	wnd = glfwCreateWindow(1280, 720, u8"", NULL, NULL);
 	dbg_assert(wnd);
+	
+	glfwGetWindowPos(wnd, &_suggested_wnd_rect.pos.x,&_suggested_wnd_rect.pos.y);
+	glfwGetWindowSize(wnd, &_suggested_wnd_rect.dim.x,&_suggested_wnd_rect.dim.y);
 	
 	glfwSetKeyCallback(wnd, glfw_key_proc);
 	glfwSetScrollCallback(wnd, glfw_scroll_proc);
@@ -129,6 +144,40 @@ static void setup_glfw () {
 	glfwMakeContextCurrent(wnd);
 	gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 	
+}
+
+static void toggle_fullscreen () {
+	if (fullscreen) {
+		glfwSetWindowMonitor(wnd, NULL, _restore_wnd_rect.pos.x,_restore_wnd_rect.pos.y,
+				_restore_wnd_rect.dim.x,_restore_wnd_rect.dim.y, GLFW_DONT_CARE);
+	} else {
+		glfwGetWindowPos(wnd, &_restore_wnd_rect.pos.x,&_restore_wnd_rect.pos.y);
+		glfwGetWindowSize(wnd, &_restore_wnd_rect.dim.x,&_restore_wnd_rect.dim.y);
+		
+		auto* r = glfwGetVideoMode(primary_monitor);
+		glfwSetWindowMonitor(wnd, primary_monitor, 0,0, r->width,r->height, r->refreshRate);
+	}
+	fullscreen = !fullscreen;
+	
+	glfwSwapInterval(1); // seems like vsync needs to be set after switching to from the inital hidden window to a fullscreen one, or there will be no vsync
+}
+static void init_show_window (bool fullscreen, Rect rect=_suggested_wnd_rect) {
+	::fullscreen = !fullscreen;
+	
+	printf(">> %d %d %d %d\n", rect.pos.x,rect.pos.y, rect.dim.x,rect.dim.y);
+	
+	_restore_wnd_rect = rect;
+	
+	toggle_fullscreen();
+	
+	glfwShowWindow(wnd);
+}
+static Rect get_monitor_rect () {
+	auto* r = glfwGetVideoMode(primary_monitor);
+	Rect ret;
+	ret.dim = iv2(r->width,r->height);
+	glfwGetMonitorPos(primary_monitor, &ret.pos.x,&ret.pos.y);
+	return ret;
 }
 
 #if 0
@@ -301,7 +350,7 @@ struct VBO_Pos_Col {
 	void init () {
 		glGenBuffers(1, &vbo);
 	}
-	void upload (array<V> cr data) {
+	void upload (array<V> data) {
 		uptr data_size = data.len * sizeof(V);
 		
 		glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -699,13 +748,14 @@ constexpr utf32 Font::JP_CHARS[JP_NUM];
 
 static Font			font;
 
-struct Asteroids {
-	Shader_Clip_Tex_Col	shad_tex;
-	Shader_World_Col	shad_world_col;
+namespace asteroids {
 	
-	VBO_Pos_Col			vbo_world_col;
+	static Shader_Clip_Tex_Col	shad_tex;
+	static Shader_World_Col		shad_world_col;
 	
-	v2 world_radius = v2(50);
+	static VBO_Pos_Col			vbo_world_col;
+	
+	static v2 world_radius = v2(50);
 	
 	typedef VBO_Pos_Col::V Vertex;
 	
@@ -713,70 +763,8 @@ struct Asteroids {
 		v2	pos;
 		v2	vel;
 		f32	ori;
-	} ship;
-	
-	struct Bullet {
-		v2	pos;
-		v2	vel;
-		
-		f32	time_to_live;
 	};
-	dynarr<Bullet*> bullets = {}; // non allocated
-	
-	f32 bullet_muzzle_vel = 60;
-	f64 t_last_shot = 0;
-	
-	void shoot (v2 pos, v2 vel) {
-		f32 ttl = 1.25 * length(world_radius*2) / bullet_muzzle_vel;
-		auto* b = (Bullet*)malloc(sizeof(Bullet));
-		*b = {pos, vel, ttl};
-		t_last_shot = t;	
-		
-		bullets.push(b);
-	}
-	void update_bullets () {
-		// cull expired bullets
-		for (u32 i=0; i<bullets.len;) {
-			if (bullets[i]->time_to_live <= 0) {
-				bullets.delete_by_moving_last(i);
-			} else {
-				bullets[i]->time_to_live -= dt;
-				++i;
-			}
-		}
-		// bullets split asteroids
-		auto test_asteroids_collison = [&] (Bullet* b) -> Asteroid* {
-			for (u32 i=0; i<asteroids.len; ++i) {
-				if (test_collison(asteroids[i], b->pos)) return asteroids[i];
-			}
-			return nullptr;
-		};
-		for (u32 i=0; i<bullets.len;) {
-			
-			bool coll = false;
-			u32 ast_i=0;
-			for (; ast_i<asteroids.len; ++ast_i) {
-				if (test_collison(asteroids[ast_i], bullets[i]->pos)) {
-					coll = true;
-					break;
-				}
-			}
-			
-			if (coll) {
-				free(bullets[i]);
-				bullets.delete_by_moving_last(i);
-				
-				split_asteroid(ast_i);
-			} else {
-				++i;
-			}
-		}
-		// bullet physics
-		for (u32 i=0; i<bullets.len; ++i) {
-			auto* b = bullets[i];
-			b->pos += b->vel * dt;
-		}
-	}
+	static Ship ship;
 	
 	struct Asteroid {
 		v2 pos;
@@ -837,9 +825,12 @@ struct Asteroids {
 			}
 		}
 	};
-	dynarr<Asteroid*> asteroids;
+	constexpr u32 Asteroid::VERTEX_COUNTS[3];
+	constexpr f32 Asteroid::VERTEX_RADII[3];
 	
-	void spawn_asteroids (u32 count) {
+	static dynarr<Asteroid*> asteroids;
+	
+	static void spawn_asteroids (u32 count) {
 		for (u32 i=0; i<count; ++i) {
 			
 			auto* a = (Asteroid*)malloc(sizeof(Asteroid));
@@ -851,13 +842,13 @@ struct Asteroids {
 			asteroids.push(a);
 		}
 	}
-	void update_asteroids () {
+	static void update_asteroids () {
 		for (u32 i=0; i<asteroids.len; ++i) {
 			auto* a = asteroids[i];
 			a->pos += a->vel * dt;
 		}
 	}
-	void split_asteroid (u32 i) {
+	static void split_asteroid (u32 i) {
 		auto* tmp = asteroids[i];
 		
 		if (		tmp->size == Asteroid::SMALL ) {
@@ -918,7 +909,7 @@ struct Asteroids {
 		free(tmp);
 	}
 	
-	bool test_collison (Asteroid* aster, v2 v) {
+	static bool test_collison (Asteroid* aster, v2 v) {
 		v = v -aster->pos;
 		
 		u32 vertex_count = Asteroid::VERTEX_COUNTS[aster->size];
@@ -946,20 +937,73 @@ struct Asteroids {
 		return false;
 	}
 	
-	void init  () {
-		cam.pos_world = v2(0);
-		cam.radius = MAX(world_radius.x, world_radius.y)*1;
+	struct Bullet {
+		v2	pos;
+		v2	vel;
 		
-		//glfwSetWindowPos(wnd, 1920-1000 -16, 35);
-		glfwShowWindow(wnd);
+		f32	time_to_live;
+	};
+	static dynarr<Bullet*> bullets = {}; // non allocated
+	
+	static f32 bullet_muzzle_vel = 60;
+	static f64 t_last_shot = 0;
+	
+	static void shoot (v2 pos, v2 vel) {
+		f32 ttl = 1.25 * length(world_radius*2) / bullet_muzzle_vel;
+		auto* b = (Bullet*)malloc(sizeof(Bullet));
+		*b = {pos, vel, ttl};
+		t_last_shot = t;	
 		
-		shad_tex.init();
-		shad_world_col.init();
-		vbo_world_col.init();
-		
-		reset();
+		bullets.push(b);
 	}
-	void reset () {
+	static void update_bullets () {
+		// cull expired bullets
+		for (u32 i=0; i<bullets.len;) {
+			if (bullets[i]->time_to_live <= 0) {
+				bullets.delete_by_moving_last(i);
+				continue; // 
+			}
+			bullets[i]->time_to_live -= dt;
+			++i;
+		}
+		// bullets split asteroids
+		auto test_asteroids_collison = [&] (Bullet* b) -> Asteroid* {
+			for (u32 i=0; i<asteroids.len; ++i) {
+				if (test_collison(asteroids[i], b->pos)) return asteroids[i];
+			}
+			return nullptr;
+		};
+		for (u32 i=0; i<bullets.len;) {
+			
+			bool coll = false;
+			u32 ast_i=0;
+			for (; ast_i<asteroids.len; ++ast_i) {
+				if (test_collison(asteroids[ast_i], bullets[i]->pos)) {
+					coll = true;
+					break;
+				}
+			}
+			
+			if (coll) {
+				free(bullets[i]);
+				bullets.delete_by_moving_last(i);
+				
+				split_asteroid(ast_i);
+			} else {
+				++i;
+			}
+		}
+		// bullet physics
+		for (u32 i=0; i<bullets.len; ++i) {
+			auto* b = bullets[i];
+			b->pos += b->vel * dt;
+		}
+	}
+	
+	f32			running_avg_fps;
+	array<char>	wnd_title = {}; // non_allocated
+	
+	static void reset () {
 		ship = Ship{0,0,0};
 		
 		bullets.realloc(0);
@@ -967,9 +1011,49 @@ struct Asteroids {
 		
 		spawn_asteroids(10);
 	}
+	static void init  () {
+		cam.pos_world = v2(0);
+		cam.radius = MAX(world_radius.x, world_radius.y)*1.2f;
+		
+		auto mr = get_monitor_rect();
+		s32 border_top =		31;			// window title
+		s32 border_bottom =		8 +29;		// window bottom border +taskbar
+		s32 border_right =		8;			// window right border
+		s32 h = mr.dim.y -border_top -border_bottom;
+		init_show_window(false, {mr.pos +iv2(mr.dim.x,border_top) -iv2(h +border_right, 0), h} );
+		
+		running_avg_fps = 60; // assume 60 fps initially
+		
+		shad_tex.init();
+		shad_world_col.init();
+		vbo_world_col.init();
+		
+		reset();
+	}
 	
-	void frame () {
-		dt = 1.0f / 60.0f;
+	static void frame () {
+		
+		if (frame_indx != 0) {
+			f32 alpha = 0.025f;
+			running_avg_fps = running_avg_fps*(1.0f -alpha) +(1.0f/dt)*alpha;
+		}
+		{
+			cstr game_name = u8"「アステロイド」ー【ASTEROIDS】";
+			
+			for (;;) {
+				auto ret = snprintf(wnd_title.arr, wnd_title.len, "%s    ~%.1f fps", game_name, running_avg_fps);
+				dbg_assert(ret >= 0);
+				if ((u32)ret >= wnd_title.len) { // buffer was to small, increase buffer size
+					wnd_title.realloc((u32)ret +1);
+					continue; // now snprintf has to succeed, so call it again
+				}
+				break;
+			}
+			
+			glfwSetWindowTitle(wnd, wnd_title.arr);
+		}
+		
+		dt = 1.0f / 60.0f; // do fixed dt for now
 		
 		if (button_went_down(B_R))	reset();
 		if (button_went_down(B_B))	split_asteroid(0);
@@ -996,9 +1080,9 @@ struct Asteroids {
 			
 			v2 drag_accel = vmag == 0 ? 0 : normalize(-ship.vel) * drag_accel_mag;
 			
-			f64 shoot_period = 1.0 / 9.33f;
+			f64 shoot_cooldown = 1.0 / 5.0f;
 			
-			if (button_is_down(B_SPACE) && (t -t_last_shot) >= shoot_period) {
+			if (button_is_down(B_SPACE) && (t -t_last_shot) >= shoot_cooldown) {
 				shoot(ship_r * v2(0,2) +ship.pos, ship_r * v2(0,bullet_muzzle_vel) +ship.vel);
 			}
 			
@@ -1011,32 +1095,50 @@ struct Asteroids {
 		}
 		printf("sv: %f bullets: %d\n", length(ship.vel), bullets.len);
 		
+		v4 background_out_of_world_col = v4( srgb(80,52,60) * 0.25f, 1 );
 		v4 background_col = v4( srgb(41,49,52) * 0.25f, 1 );
 		
 		glViewport(0, 0, wnd_dim.x, wnd_dim.y);
 		
-		glClearColor(background_col.x, background_col.y, background_col.z, 1.0f);
+		glClearColor(background_out_of_world_col.x, background_out_of_world_col.y, background_out_of_world_col.z, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		
 		shad_world_col.bind();
 		shad_world_col.world_to_clip.set( cam.world_to_clip );
+		
+		vbo_world_col.bind(shad_world_col);
+		
+		{
+			
+			auto data = array<Vertex>{
+				{ world_radius*v2(+1,-1), background_col },
+				{ world_radius*v2(+1,+1), background_col },
+				{ world_radius*v2(-1,-1), background_col },
+				{ world_radius*v2(-1,-1), background_col },
+				{ world_radius*v2(+1,+1), background_col },
+				{ world_radius*v2(-1,+1), background_col },
+			};
+			
+			vbo_world_col.upload(data);
+			
+			glDrawArrays(GL_TRIANGLES, 0, data.len);
+		}
 		
 		{
 			v4 col = v4(1);
 			
 			m2 r = rotate2(ship.ori);
 			
-			Vertex data[] = {
+			auto data = { Vertex
 				{ r*v2( 0, 0) +ship.pos, col },
 				{ r*v2(+1,-1) +ship.pos, col },
 				{ r*v2( 0,+2) +ship.pos, col },
 				{ r*v2(-1,-1) +ship.pos, col },
 			};
 			
-			vbo_world_col.upload({data,arrlenof(u32,data)});
-			vbo_world_col.bind(shad_world_col);
+			vbo_world_col.upload(data);
 			
-			glDrawArrays(GL_LINE_LOOP, 0, arrlenof(u32,data));
+			glDrawArrays(GL_LINE_LOOP, 0, data.size());
 		}
 		if (bullets.len > 0) {
 			v4 col = v4(1);
@@ -1050,7 +1152,6 @@ struct Asteroids {
 			}
 			
 			vbo_world_col.upload(data);
-			vbo_world_col.bind(shad_world_col);
 			
 			glDrawArrays(GL_POINTS, 0, data.len);
 		}
@@ -1060,50 +1161,44 @@ struct Asteroids {
 			auto data = array<Vertex>::malloc(Asteroid::VERTEX_COUNTS[Asteroid::BIG]);
 			defer { data.free(); };
 			
-			for (u32 i=0; i<asteroids.len; ++i) {
-				auto count = asteroids[i]->get_vertex_count();
+			//for (u32 i=0; i<asteroids.len; ++i) {
+			for (auto& a : asteroids) {
+				auto count = a->get_vertex_count();
 				for (u32 j=0; j<count; ++j) {
-					data[j].pos = asteroids[i]->vertecies[j] +asteroids[i]->pos;
+					data[j].pos = a->vertecies[j] +a->pos;
 					data[j].col = col;
 				}
 				
 				vbo_world_col.upload(data);
-				vbo_world_col.bind(shad_world_col);
 				
 				glDrawArrays(GL_LINE_LOOP, 0, count);
 			}
 		}
-		#if 0 // colission visualization
+		#if 1 // colission visualization
 		if (asteroids.len > 0) {
 			
-			auto data = array<Vertex>::malloc(20*20);
-			defer { data.free(); };
-			
-			for (u32 a_i=0; a_i<asteroids.len; ++a_i) {
-				auto count = asteroids[a_i].get_vertex_count();
+			for (auto& a : asteroids) {
+				Vertex data[20][20];
 				
-				u32 out = 0;
-				for (u32 i=0; i<20; ++i) {
-					for (u32 j=0; j<20; ++j) {
-						data[out].pos = asteroids[a_i].pos +7 * ((v2)iv2(i,j) / 19 * 2 -1);
-						data[out].col = test_collison(asteroids[a_i], data[out].pos) ? v4(1,0.25f,0.25f,1) :  v4(0.25f,1,0.25f,1);
-						++out;
+				auto count = Asteroid::VERTEX_COUNTS[ a->size ];
+				
+				for (u32 j=0; j<20; ++j) {
+					for (u32 i=0; i<20; ++i) {
+						data[j][i].pos = a->pos +7 * ((v2)iv2(i,j) / 19 * 2 -1);
+						data[j][i].col = test_collison(a, data[j][i].pos) ? v4(1,0.25f,0.25f,1) :  v4(0.25f,1,0.25f,1);
 					}
 				}
 				
-				vbo_world_col.upload(data);
-				vbo_world_col.bind(shad_world_col);
+				vbo_world_col.upload({&data[0][0], 20*20});
 				
-				glDrawArrays(GL_POINTS, 0, data.len);
+				glDrawArrays(GL_POINTS, 0, 20*20);
 			}
 		}
 		#endif
 		
 	}
 	
-};
-constexpr u32 Asteroids::Asteroid::VERTEX_COUNTS[];
-constexpr f32 Asteroids::Asteroid::VERTEX_RADII[];
+}
 
 int main (int argc, char** argv) {
 	
@@ -1118,7 +1213,7 @@ int main (int argc, char** argv) {
 	
 	glPointSize(5);
 	
-	glfwSwapInterval(1);
+	//glfwSwapInterval(1);
 	
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	
@@ -1130,9 +1225,7 @@ int main (int argc, char** argv) {
 	
 	font.init();
 	
-	Asteroids game = Asteroids();
-	
-	game.init();
+	asteroids::init();
 	
 	bool	dragging = false;
 	v2		dragging_grab_pos_world;
@@ -1150,6 +1243,7 @@ int main (int argc, char** argv) {
 		glfwPollEvents();
 		
 		if (glfwWindowShouldClose(wnd)) break;
+		if (button_went_down(B_F11)) toggle_fullscreen();
 		
 		{
 			glfwGetFramebufferSize(wnd, &wnd_dim.x, &wnd_dim.y);
@@ -1226,7 +1320,7 @@ int main (int argc, char** argv) {
 			
 		}
 		
-		game.frame();
+		asteroids::frame();
 		
 		glfwSwapBuffers(wnd);
 		
