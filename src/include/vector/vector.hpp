@@ -2,6 +2,28 @@
 #define INL FORCEINLINE
 
 //
+#define T	bool
+#define V2	bv2
+#define V3	bv3
+#define V4	bv4
+#define BOOLVEC	1
+	
+	#include "vector_tv2.hpp"
+	//#include "vector_tv3.hpp"
+	//#include "vector_tv4.hpp"
+	
+#undef T
+#undef V2
+#undef V3
+#undef V4
+#undef BOOLVEC
+
+#define BOOLVEC	0
+#define BV2	bv2
+#define BV3	bv3
+#define BV4	bv4
+
+//
 #define T	f32
 #define V2	fv2
 #define V3	fv3
@@ -56,6 +78,11 @@
 #define M2	fm2
 #define M3	fm3
 #define M4	fm4
+
+#undef BOOLVEC
+#undef BV2
+#undef BV3
+#undef BV4
 
 struct M2 {
 	V2 arr[2];

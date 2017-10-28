@@ -83,3 +83,9 @@ static constexpr V4 MAX (V4 l, V4 r) { return V4( MAX(l.x, r.x), MAX(l.y, r.y), 
 #endif
 
 static constexpr V4 clamp (V4 val, V4 l, V4 h) { return MIN( MAX(val,l), h ); }
+static V4 mymod (V4 val, V4 range) {
+	return V4(	mymod(val.x, range.x),
+				mymod(val.y, range.y),
+				mymod(val.z, range.z),
+				mymod(val.w, range.w) );
+}

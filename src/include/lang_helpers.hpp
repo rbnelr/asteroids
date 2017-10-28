@@ -100,12 +100,30 @@
 #define ANSI_COLOUR_CODE_NC		"\033[0m"
 
 
-template <typename T=uptr, typename AT, uptr N>
-static constexpr T _arrlenof (AT (& arr)[N]) {
-	//static_assert(); // TODO: implement proper check
+#include "assert.hpp"
+
+//
+template<typename CAST_T, typename T>
+static constexpr bool _safe_cast (T x);
+
+template<> constexpr bool _safe_cast<u32, u64> (u64 x) { return x <= 0xffffffffull; }
+template<> constexpr bool _safe_cast<s32, u64> (u64 x) { return x <= 0x7fffffffull; }
+
+#define safe_cast(cast_t, val) _safe_cast<cast_t>(val)
+
+//
+template <typename T=u32, typename AT, uptr N>
+static constexpr T _arrlen (AT (& arr)[N]) {
+	static_assert(safe_cast(T, N), "arrlen:: array length too large for output type!");
 	return (T)N;
 }
-#define arrlenof(T, arr) _arrlenof<T>(arr)
+template <typename T=u32, typename AT, uptr M, uptr N>
+static constexpr T _arrlen (AT (& arr)[M][N]) {
+	static_assert(safe_cast(T, M*N), "arrlen:: array length too large for output type!");
+	return (T)(M*N);
+}
+#define arrlent(T, arr) _arrlen<T>(arr)
+#define arrlen(arr) _arrlen<>(arr)
 
 static u32 strlen (utf32 const* str) {
 	u32 ret = 0;
@@ -163,15 +181,6 @@ static FORCEINLINE At_Scope_Exit<FUNC> operator+(_Defer_Helper, FUNC f) {
 		return val = (TYPE)((UNDERLYING_TYPE)val +1); \
 	}
 
-#include "assert.hpp"
-
-template<typename CAST_T, typename T>
-static constexpr bool _safe_cast (T x);
-
-template<> constexpr bool _safe_cast<u32, u64> (u64 x) { return x <= 0xffffffffull; }
-
-#define safe_cast(cast_t, val) _safe_cast<cast_t>(val)
-
 #include <initializer_list>
 
 template <typename T, typename LEN_T=u32>
@@ -185,7 +194,8 @@ struct array {
 				//static_assert(safe_cast(LEN_T, l.size()), "array<> :: initializer_list.size() out of range for len!"); // can't do this in c++
 			}
 	template<LEN_T N>			constexpr array (T (& a)[N]): arr{a}, len{N} {}
-	template<LEN_T N, LEN_T M>	constexpr array (T (& a)[M][N]): arr{a}, len{N*M} {}
+	
+	operator array<T const> () { return {arr, len}; }
 	
 	static array malloc (LEN_T len) {
 		return { (T*)::malloc(len*sizeof(T)), len };
@@ -213,8 +223,8 @@ struct array {
 	T*					end () {					return &arr[len]; }
 	constexpr T const*	end () const {				return &arr[len]; }
 	
-	LEN_T				get_i (T const& it) {		return &it -arr; }
-	constexpr LEN_T		get_i (T const& it) const {	return &it -arr; }
+	LEN_T				get_i (T const* it) {		return it -arr; }
+	constexpr LEN_T		get_i (T const* it) const {	return it -arr; }
 	
 };
 
@@ -273,3 +283,20 @@ struct dynarr : array<T, LEN_T> {
 		shrink_by(1);
 	}
 };
+
+static void print_array (array<char>* arr, cstr format, ...) {
+	
+	va_list vl;
+	va_start(vl, format);
+	
+	for (;;) {
+		auto ret = vsnprintf(arr->arr, arr->len, format, vl);
+		dbg_assert(ret >= 0);
+		if ((u32)ret < arr->len) break;
+		// buffer was to small, increase buffer size
+		arr->realloc((u32)ret +1);
+		// now snprintf has to succeed, so call it again
+	}
+	
+	va_end(vl);
+}
