@@ -104,8 +104,6 @@ static void toggle_fullscreen () {
 static void init_show_window (bool fullscreen, Rect rect=_suggested_wnd_rect) {
 	::fullscreen = !fullscreen;
 	
-	printf(">> %d %d %d %d\n", rect.pos.x,rect.pos.y, rect.dim.x,rect.dim.y);
-	
 	_restore_wnd_rect = rect;
 	
 	toggle_fullscreen();
