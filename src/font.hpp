@@ -283,7 +283,7 @@ namespace font {
 			dbg_assert(line.len > 0);
 			defer { line.free(); };
 			
-			#define SHOW_TEXTURE 1
+			#define SHOW_TEXTURE 0
 			
 			auto text_data = array<VBO_Pos_Tex_Col::V>::malloc( line.len * 6
 					#if SHOW_TEXTURE

@@ -490,7 +490,7 @@ namespace asteroids {
 	
 	static VBO_Pos_Col			vbo_world_col;
 	
-	static v2 world_radius = v2(50);
+	static v2 world_radius = v2(80, 50);
 	
 	typedef VBO_Pos_Col::V Vertex;
 	
